@@ -1,14 +1,15 @@
-import asyncio
 import configparser
 import datetime
 import json
+import queue
+import threading
 import urllib.request
 
 from logger import console_logger
 from processors import Processor
 
 
-class DataCollector():
+class DataCollector(threading.Thread):
     """
     A simulated data collection engine. It collects resources from an input API
     URL, the expected input from that API being a JSON string encoding an
@@ -74,6 +75,7 @@ class DataCollector():
                  failure_chance):
         """
         """
+        super().__init__()
         self.data_url = data_url
         self.num_processors = num_processors
         self.num_retry_processors = num_retry_processors
@@ -84,7 +86,7 @@ class DataCollector():
 
         self.output_json = list()
 
-    async def run(self):
+    def run(self):
         """
         """
         console_logger.info('Starting Data Collector')
@@ -96,8 +98,6 @@ class DataCollector():
         processors, retry_processors = self.start_processors(
             data_queue, retry_queue
         )
-        # give the processors a chance to start up
-        await asyncio.sleep(0)
 
         # collect the data and start populating the queue. If the queue is
         # full, mark the resource as unprocessed.
@@ -109,13 +109,10 @@ class DataCollector():
         # populate the data queue
         for resource in data:
             try:
-                # make sure the processors have time to do their thing each
-                # cycle
-                await asyncio.sleep(0)
                 data_queue.put_nowait(resource)
                 console_logger.info(
                     'Data Collector: resource added to data queue')
-            except asyncio.queues.QueueFull:
+            except queue.Full:
                 console_logger.info(
                     ('Data Collector: data queue full, '
                      'resource marked as unprocessed')
@@ -126,29 +123,21 @@ class DataCollector():
                 resource['processing_date'] = now
                 self.output_json.append(resource)
 
-        # wait for the data queue to empty and then close the running
-        # processors.
+        # wait for the data queue to empty and then send the stop signal to the
+        # running processors.
         console_logger.info(
             'Data Collector: waiting for resources to finish processing...'
         )
-        await data_queue.join()
-        for processor in processors:
-            console_logger.info(
-                f'Data Collector: cancelling {processor.get_name()}'
-            )
-            processor.cancel()
-
-        # wait for the retry queue to empty and then close the running
-        # retry processors.
+        data_queue.join()
+        # wait for the retry queue to empty
         console_logger.info(
             'Data Collector: waiting to finish retrying resources...'
         )
-        await retry_queue.join()
-        for retry_processor in retry_processors:
-            console_logger.info(
-                f'Data Collector: cancelling {retry_processor.get_name()}'
-            )
-            retry_processor.cancel()
+        retry_queue.join()
+
+        console_logger.info(
+            'Data Collector: finished processing resources'
+        )
 
         # write our output file.
         console_logger.info('Writing resources to output.json')
@@ -165,19 +154,19 @@ class DataCollector():
         That way, if the queue is full, we can assume the processors are full.
 
         Returns:
-            Two asyncio Queue objects, one for resources waiting to be
-            processed and one for resources that need to be retried.
+            Two Queue objects, one for resources waiting to be processed and
+            one for resources that need to be retried.
         """
         # The data queue will hold the collected data resources that need to be
         # processed
         console_logger.info('Data Collector: creating data queue')
-        data_queue = asyncio.Queue(
+        data_queue = queue.Queue(
             maxsize=self.num_processors*self.num_workers
         )
         # The retry queue will hold data resources that have failed processing
         # at least once and need to be retried
         console_logger.info('Data Collector: creating retry queue')
-        retry_queue = asyncio.Queue(
+        retry_queue = queue.Queue(
             maxsize=self.num_retry_processors*self.num_workers
         )
 
@@ -189,15 +178,16 @@ class DataCollector():
         processors.
 
         Arguments:
-            data_queue (obj): The asyncio Queue that resources awaiting
-                processing should be pulled from.
-            retry_queue (obj): The asyncio Queue that resources awaiting
-                retrying after failing should be pulled from.
+            data_queue (obj): The Queue from which resources awaiting
+                processing should be pulled.
+            retry_queue (obj): The Queue from which resources awaiting retrying
+                after failing should be pulled from.
 
         Returns:
-            Two lists of processor Tasks: the data processors that process new
-            resources and the retry processors that are reserved for processing
-            resources that have failed to process at least once before.
+            Two lists of processor Threads: the data processors that process
+            new resources and the retry processors that are reserved for
+            processing resources that have failed to process at least once
+            before.
         """
         # All of our processors and retry processors share a large number of
         # inputs, so put those all here together
@@ -215,13 +205,10 @@ class DataCollector():
             f'Data Collector: starting {self.num_processors} data processor(s)'
         )
         processors = [
-            asyncio.create_task(
-                Processor(
-                    name=f'Data Processor {n+1}',
-                    input_queue=data_queue,
-                    **processor_inputs
-                ).run(),
-                name=f'Data Processor {n+1}'
+            Processor(
+                name=f'Data Processor {n+1}',
+                input_queue=data_queue,
+                **processor_inputs
             )
             for n in range(self.num_processors)
         ]
@@ -233,13 +220,10 @@ class DataCollector():
             )
         )
         retry_processors = [
-            asyncio.create_task(
-                Processor(
+            Processor(
                     name=f'Retry Processor {n+1}',
                     input_queue=retry_queue,
                     **processor_inputs
-                ).run(),
-                name=f'Retry Processor {n+1}'
             )
             for n in range(self.num_retry_processors)
         ]
@@ -281,4 +265,6 @@ if __name__ == '__main__':
         ),
         'failure_chance': float(config['INPUTS']['failure_chance'])
     }
-    asyncio.run(DataCollector(**inputs).run())
+    data_collector = DataCollector(**inputs)
+    data_collector.start()
+    data_collector.join()

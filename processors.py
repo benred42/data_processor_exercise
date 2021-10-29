@@ -1,12 +1,13 @@
-import asyncio
 import datetime
+import queue
 import random
+import threading
 import time
 
 from logger import console_logger
 
 
-class Processor():
+class Processor(threading.Thread):
     """
     A simulated data processor. After waiting a configurable random number of
     seconds on startup, it pulls resources (which it expects to be
@@ -57,6 +58,7 @@ class Processor():
                  output_json):
         """
         """
+        super().__init__()
         self.name = name
         self.start_delay = start_delay
         self.num_workers = num_workers
@@ -66,7 +68,10 @@ class Processor():
         self.retry_queue = retry_queue
         self.output_json = output_json
 
-    async def run(self):
+        self.daemon = True
+        self.start()
+
+    def run(self):
         """
         """
         # first, we wait for a random amount of time up to the value of
@@ -77,7 +82,7 @@ class Processor():
         )
         delay = random.uniform(0, self.start_delay)
         started = time.monotonic()
-        await asyncio.sleep(delay)
+        time.sleep(delay)
         ended = time.monotonic()
         console_logger.info(
             f'{self.name}: started (took {ended-started} seconds)'
@@ -85,7 +90,10 @@ class Processor():
 
         # now that the processor has finished its startup delay, start up our
         # workers
-        workers = [
+        console_logger.info(
+            f'{self.name}: starting {self.num_workers} workers'
+        )
+        for n in range(self.num_workers):
             Worker(
                 name=f'Worker {n+1}',
                 parent_processor=self.name,
@@ -94,19 +102,10 @@ class Processor():
                 processing_delay=self.worker_processing_delay,
                 failure_chance=self.failure_chance,
                 output_json=self.output_json
-            ).run()
-            for n in range(self.num_workers)
-        ]
-        try:
-            console_logger.info(
-                f'{self.name}: starting workers'
             )
-            await asyncio.gather(*workers)
-        except asyncio.CancelledError:
-            raise
 
 
-class Worker():
+class Worker(threading.Thread):
     """
     """
 
@@ -120,6 +119,7 @@ class Worker():
                  output_json):
         """
         """
+        super().__init__()
         self.name = name
         self.parent_processor = parent_processor
         self.input_queue = input_queue
@@ -128,7 +128,10 @@ class Worker():
         self.failure_chance = failure_chance
         self.output_json = output_json
 
-    async def run(self):
+        self.daemon = True
+        self.start()
+
+    def run(self):
         """
         """
         console_logger.info(
@@ -137,7 +140,7 @@ class Worker():
         # worker should run until cancelled by another process
         while True:
             # pull a resource from the input queue
-            resource = await self.input_queue.get()
+            resource = self.input_queue.get()
             # now we need to simulate processing the resource, so wait a random
             # amount of time up to the value of `processing_delay` in seconds.
             console_logger.info(
@@ -145,7 +148,7 @@ class Worker():
             )
             processing_delay = random.uniform(0, self.processing_delay)
             started = time.monotonic()
-            await asyncio.sleep(processing_delay)
+            time.sleep(processing_delay)
             ended = time.monotonic()
             console_logger.info(
                 (f'{self.parent_processor} {self.name}: '
@@ -178,6 +181,10 @@ class Worker():
             # inform the input queue that the resource has been processed
             self.input_queue.task_done()
 
+            console_logger.info(
+                f'{self.parent_processor} {self.name}: ready for new resource.'
+            )
+
     def retry_resource(self, resource, retries):
         """
         """
@@ -202,7 +209,7 @@ class Worker():
                     (f'{self.parent_processor} {self.name}: '
                      f'resource added to retry queue')
                 )
-            except asyncio.queues.QueueFull:
+            except queue.Full:
                 # retry queue is full, mark the resource as unprocessed
                 console_logger.info(
                     (f'{self.parent_processor} {self.name}: retry queue full, '
