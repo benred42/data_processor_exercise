@@ -108,23 +108,7 @@ class DataCollector():
         )
         # populate the data queue
         for resource in data:
-            try:
-                # make sure the processors have time to do their thing each
-                # cycle
-                await asyncio.sleep(0)
-                data_queue.put_nowait(resource)
-                console_logger.info(
-                    'Data Collector: resource added to data queue')
-            except asyncio.queues.QueueFull:
-                console_logger.info(
-                    ('Data Collector: data queue full, '
-                     'resource marked as unprocessed')
-                )
-                # since the queue was full, mark the resource as unprocessed
-                resource['processed'] = False
-                now = datetime.datetime.now().isoformat()
-                resource['processing_date'] = now
-                self.output_json.append(resource)
+            await self.add_resource_to_queue(resource, data_queue, retry_queue)
 
         # wait for the data queue to empty and then close the running
         # processors.
@@ -263,6 +247,26 @@ class DataCollector():
         console_logger.info('Data Collector: data collected')
 
         return data
+
+    async def add_resource_to_queue(self, resource, data_queue, retry_queue):
+        """
+        """
+        try:
+            data_queue.put_nowait(resource)
+            console_logger.info(
+                'Data Collector: resource added to data queue')
+        except asyncio.queues.QueueFull:
+            console_logger.info(
+                ('Data Collector: data queue full, '
+                 'resource marked as unprocessed')
+            )
+            # since the queue was full, mark the resource as unprocessed
+            resource['processed'] = False
+            now = datetime.datetime.now().isoformat()
+            resource['processing_date'] = now
+            self.output_json.append(resource)
+        # make sure the processors have a chance to do their thing
+        await asyncio.sleep(0)
 
 
 if __name__ == '__main__':
