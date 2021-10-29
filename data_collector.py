@@ -93,11 +93,11 @@ class DataCollector():
         data_queue, retry_queue = self.create_queues()
 
         # Time to start our processors.
-        processors, retry_processors = self.start_processors(
+        processors, retry_processors = await self.start_processors(
             data_queue, retry_queue
         )
-        # give the processors a chance to start up
-        await asyncio.sleep(0)
+        # # give the processors a chance to start up
+        # await asyncio.sleep(0)
 
         # collect the data and start populating the queue. If the queue is
         # full, mark the resource as unprocessed.
@@ -183,7 +183,7 @@ class DataCollector():
 
         return data_queue, retry_queue
 
-    def start_processors(self, data_queue, retry_queue):
+    async def start_processors(self, data_queue, retry_queue):
         """
         This method configures and starts our pools of processors and retry
         processors.
@@ -214,8 +214,20 @@ class DataCollector():
         console_logger.info(
             f'Data Collector: starting {self.num_processors} data processor(s)'
         )
-        processors = [
-            asyncio.create_task(
+        # processors = [
+        #     asyncio.create_task(
+        #         Processor(
+        #             name=f'Data Processor {n+1}',
+        #             input_queue=data_queue,
+        #             **processor_inputs
+        #         ).run(),
+        #         name=f'Data Processor {n+1}'
+        #     )
+        #     for n in range(self.num_processors)
+        # ]
+        processors = []
+        for n in range(self.num_processors):
+            processor = asyncio.create_task(
                 Processor(
                     name=f'Data Processor {n+1}',
                     input_queue=data_queue,
@@ -223,8 +235,9 @@ class DataCollector():
                 ).run(),
                 name=f'Data Processor {n+1}'
             )
-            for n in range(self.num_processors)
-        ]
+            processors.append(processor)
+            # give the processor a chance to start up
+            await asyncio.sleep(0)
 
         # start our retry processors.
         console_logger.info(
@@ -232,8 +245,20 @@ class DataCollector():
                 self.num_retry_processors
             )
         )
-        retry_processors = [
-            asyncio.create_task(
+        # retry_processors = [
+        #     asyncio.create_task(
+        #         Processor(
+        #             name=f'Retry Processor {n+1}',
+        #             input_queue=retry_queue,
+        #             **processor_inputs
+        #         ).run(),
+        #         name=f'Retry Processor {n+1}'
+        #     )
+        #     for n in range(self.num_retry_processors)
+        # ]
+        retry_processors = []
+        for n in range(self.num_retry_processors):
+            retry_processor = asyncio.create_task(
                 Processor(
                     name=f'Retry Processor {n+1}',
                     input_queue=retry_queue,
@@ -241,8 +266,9 @@ class DataCollector():
                 ).run(),
                 name=f'Retry Processor {n+1}'
             )
-            for n in range(self.num_retry_processors)
-        ]
+            retry_processors.append(retry_processor)
+            # give the retry processor a chance to start up
+            await asyncio.sleep(0)
 
         return processors, retry_processors
 
