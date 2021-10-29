@@ -77,7 +77,7 @@ class Processor():
         )
         delay = random.uniform(0, self.start_delay)
         started = time.monotonic()
-        time.sleep(delay)
+        await asyncio.sleep(delay)
         ended = time.monotonic()
         console_logger.info(
             f'{self.name}: started (took {ended-started} seconds)'
@@ -145,7 +145,7 @@ class Worker():
             )
             processing_delay = random.uniform(0, self.processing_delay)
             started = time.monotonic()
-            time.sleep(processing_delay)
+            await asyncio.sleep(processing_delay)
             ended = time.monotonic()
             console_logger.info(
                 (f'{self.parent_processor} {self.name}: '
