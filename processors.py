@@ -1,13 +1,14 @@
 import datetime
 import multiprocessing as multi
 import random
+import threading
 import time
 
 from queue import Full
 from logger import console_logger
 
 
-class Processor(multi.Process):
+class Processor(threading.Thread):
     """
     A simulated data processor. After waiting a configurable random number of
     seconds on startup, it pulls resources (which it expects to be
@@ -93,18 +94,19 @@ class Processor(multi.Process):
             f'{self.name}: starting {self.num_workers} workers'
         )
         with multi.Pool(processes=self.num_workers) as pool:
-            for n in range(self.num_workers):
-                pool.apply_async(
-                    Worker(
-                        name=f'Worker {n+1}',
-                        parent_processor=self.name,
-                        input_queue=self.input_queue,
-                        retry_queue=self.retry_queue,
-                        processing_delay=self.worker_processing_delay,
-                        failure_chance=self.failure_chance,
-                        output_json=self.output_json
-                    ).run()
-                )
+            [pool.apply_async(
+                Worker(
+                    name=f'Worker {n+1}',
+                    parent_processor=self.name,
+                    input_queue=self.input_queue,
+                    retry_queue=self.retry_queue,
+                    processing_delay=self.worker_processing_delay,
+                    failure_chance=self.failure_chance,
+                    output_json=self.output_json
+                ).run()
+             )
+             for n in range(self.num_workers)
+             ]
 
 
 class Worker():

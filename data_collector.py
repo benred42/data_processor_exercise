@@ -2,6 +2,7 @@ import configparser
 import datetime
 import json
 import multiprocessing as multi
+import threading
 import urllib.request
 
 from queue import Full
@@ -9,7 +10,7 @@ from logger import console_logger
 from processors import Processor
 
 
-class DataCollector(multi.Process):
+class DataCollector(threading.Thread):
     """
     A simulated data collection engine. It collects resources from an input API
     URL, the expected input from that API being a JSON string encoding an
@@ -143,6 +144,8 @@ class DataCollector(multi.Process):
         console_logger.info('Writing resources to output.json')
         with open('output.json', 'w') as output_file:
             json.dump(self.output_json, output_file, indent=4)
+
+        return
 
     def create_queues(self):
         """
