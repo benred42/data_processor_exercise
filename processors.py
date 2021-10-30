@@ -103,6 +103,9 @@ class Processor():
             )
             await asyncio.gather(*workers)
         except asyncio.CancelledError:
+            console_logger.info(
+                f'{self.name}: stopped'
+            )
             raise
 
 
@@ -134,49 +137,58 @@ class Worker():
         console_logger.info(
             f'{self.parent_processor} {self.name}: started'
         )
-        # worker should run until cancelled by another process
-        while True:
-            # pull a resource from the input queue
-            resource = await self.input_queue.get()
-            # now we need to simulate processing the resource, so wait a random
-            # amount of time up to the value of `processing_delay` in seconds.
-            console_logger.info(
-                f'{self.parent_processor} {self.name}: processing resource...'
-            )
-            processing_delay = random.uniform(0, self.processing_delay)
-            started = time.monotonic()
-            await asyncio.sleep(processing_delay)
-            ended = time.monotonic()
-            console_logger.info(
-                (f'{self.parent_processor} {self.name}: '
-                 f'initial resource processing finished '
-                 f'(took {ended-started} seconds). Checking for failure...')
-            )
-
-            # next, we need to check if the resource 'failed' to process, and
-            # if so send it to the retry queue. If the queue is full, mark the
-            # resource as unprocessed. Likewise, if it has already been retried
-            # 3 times, mark the resource as unprocessed.
-
-            # first, get/set the number of retries
-            if 'retries' in resource.keys():
-                retries = resource.pop('retries')
-            else:
-                retries = 0
-            if random.random() <= self.failure_chance:
-                # resource failed, attempt to schedule it to be retried.
-                self.retry_resource(resource, retries)
-            else:
-                # if the resource didn't fail, it must have succeeded. Add it
-                # to output_json marked as processed
+        try:
+            # worker should run until cancelled by another process
+            while True:
+                # pull a resource from the input queue
+                resource = await self.input_queue.get()
+                # now we need to simulate processing the resource, so wait a
+                # random amount of time up to the value of `processing_delay`
+                # in seconds.
                 console_logger.info(
                     (f'{self.parent_processor} {self.name}: '
-                     f'resource successfully processed')
+                     f'processing resource...')
                 )
-                self.output_resource(resource)
+                processing_delay = random.uniform(0, self.processing_delay)
+                started = time.monotonic()
+                await asyncio.sleep(processing_delay)
+                ended = time.monotonic()
+                console_logger.info(
+                    (f'{self.parent_processor} {self.name}: '
+                     f'initial resource processing finished '
+                     f'(took {ended-started} seconds). '
+                     f'Checking for failure...')
+                )
 
-            # inform the input queue that the resource has been processed
-            self.input_queue.task_done()
+                # next, we need to check if the resource 'failed' to process,
+                # and if so send it to the retry queue. If the queue is full,
+                # mark the resource as unprocessed. Likewise, if it has already
+                # been retried 3 times, mark the resource as unprocessed.
+
+                # first, get/set the number of retries
+                if 'retries' in resource.keys():
+                    retries = resource.pop('retries')
+                else:
+                    retries = 0
+                if random.random() <= self.failure_chance:
+                    # resource failed, attempt to schedule it to be retried.
+                    self.retry_resource(resource, retries)
+                else:
+                    # if the resource didn't fail, it must have succeeded. Add
+                    # it to output_json marked as processed
+                    console_logger.info(
+                        (f'{self.parent_processor} {self.name}: '
+                         f'resource successfully processed')
+                    )
+                    self.output_resource(resource)
+
+                # inform the input queue that the resource has been processed
+                self.input_queue.task_done()
+        except asyncio.CancelledError:
+            console_logger.info(
+                f'{self.parent_processor} {self.name}: stopped'
+            )
+            raise
 
     def retry_resource(self, resource, retries):
         """
