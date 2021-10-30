@@ -1,15 +1,15 @@
 import configparser
 import datetime
 import json
-import queue
-import threading
+import multiprocessing as multi
 import urllib.request
 
+from queue import Full
 from logger import console_logger
 from processors import Processor
 
 
-class DataCollector(threading.Thread):
+class DataCollector(multi.Process):
     """
     A simulated data collection engine. It collects resources from an input API
     URL, the expected input from that API being a JSON string encoding an
@@ -112,7 +112,7 @@ class DataCollector(threading.Thread):
                 data_queue.put_nowait(resource)
                 console_logger.info(
                     'Data Collector: resource added to data queue')
-            except queue.Full:
+            except Full:
                 console_logger.info(
                     ('Data Collector: data queue full, '
                      'resource marked as unprocessed')
@@ -154,19 +154,19 @@ class DataCollector(threading.Thread):
         That way, if the queue is full, we can assume the processors are full.
 
         Returns:
-            Two Queue objects, one for resources waiting to be processed and
-            one for resources that need to be retried.
+            Two JoinableQueue objects, one for resources waiting to be
+            processed and one for resources that need to be retried.
         """
         # The data queue will hold the collected data resources that need to be
         # processed
         console_logger.info('Data Collector: creating data queue')
-        data_queue = queue.Queue(
+        data_queue = multi.JoinableQueue(
             maxsize=self.num_processors*self.num_workers
         )
         # The retry queue will hold data resources that have failed processing
         # at least once and need to be retried
         console_logger.info('Data Collector: creating retry queue')
-        retry_queue = queue.Queue(
+        retry_queue = multi.JoinableQueue(
             maxsize=self.num_retry_processors*self.num_workers
         )
 

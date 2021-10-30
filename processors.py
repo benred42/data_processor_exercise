@@ -1,13 +1,13 @@
 import datetime
-import queue
+import multiprocessing as multi
 import random
-import threading
 import time
 
+from queue import Full
 from logger import console_logger
 
 
-class Processor(threading.Thread):
+class Processor(multi.Process):
     """
     A simulated data processor. After waiting a configurable random number of
     seconds on startup, it pulls resources (which it expects to be
@@ -68,7 +68,6 @@ class Processor(threading.Thread):
         self.retry_queue = retry_queue
         self.output_json = output_json
 
-        self.daemon = True
         self.start()
 
     def run(self):
@@ -93,19 +92,22 @@ class Processor(threading.Thread):
         console_logger.info(
             f'{self.name}: starting {self.num_workers} workers'
         )
-        for n in range(self.num_workers):
-            Worker(
-                name=f'Worker {n+1}',
-                parent_processor=self.name,
-                input_queue=self.input_queue,
-                retry_queue=self.retry_queue,
-                processing_delay=self.worker_processing_delay,
-                failure_chance=self.failure_chance,
-                output_json=self.output_json
-            )
+        with multi.Pool(processes=self.num_workers) as pool:
+            for n in range(self.num_workers):
+                pool.apply_async(
+                    Worker(
+                        name=f'Worker {n+1}',
+                        parent_processor=self.name,
+                        input_queue=self.input_queue,
+                        retry_queue=self.retry_queue,
+                        processing_delay=self.worker_processing_delay,
+                        failure_chance=self.failure_chance,
+                        output_json=self.output_json
+                    ).run()
+                )
 
 
-class Worker(threading.Thread):
+class Worker():
     """
     """
 
@@ -127,9 +129,6 @@ class Worker(threading.Thread):
         self.processing_delay = processing_delay
         self.failure_chance = failure_chance
         self.output_json = output_json
-
-        self.daemon = True
-        self.start()
 
     def run(self):
         """
@@ -209,7 +208,7 @@ class Worker(threading.Thread):
                     (f'{self.parent_processor} {self.name}: '
                      f'resource added to retry queue')
                 )
-            except queue.Full:
+            except Full:
                 # retry queue is full, mark the resource as unprocessed
                 console_logger.info(
                     (f'{self.parent_processor} {self.name}: retry queue full, '
